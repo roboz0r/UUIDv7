@@ -12,9 +12,8 @@
   <ProjectReference Include="../UUIDv7/UUIDv7.fsproj" />
  </ItemGroup>
  <ItemGroup>
-   <PackageReference Include="expecto" Version="10.1.0" />
-   <PackageReference Include="expecto.fscheck" Version="10.1.0" />
-   <PackageReference Include="yolodev.expecto.testsdk" Version="0.14.2" />
+   <PackageReference Include="BenchmarkDotNet" Version="0.13.9" />
+   <PackageReference Include="BenchmarkDotNet.Diagnostics.Windows" Version="0.13.9" />
  </ItemGroup>
 
 </Project>

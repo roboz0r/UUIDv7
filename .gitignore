@@ -4,3 +4,6 @@ obj/
 
 # Benchmark Results
 BenchmarkDotNet.Artifacts/
+
+# Visual Studio
+.vs/

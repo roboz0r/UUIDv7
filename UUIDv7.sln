@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
@@ -6,6 +6,15 @@ MinimumVisualStudioVersion = 10.0.40219.1
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "UUIDv7", "UUIDv7\UUIDv7.fsproj", "{56E53B01-B630-4643-B210-D2FDF008F82F}"
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "UUIDv7.Tests", "UUIDv7.Tests\UUIDv7.Tests.fsproj", "{3671DE56-B48B-414B-8B86-9B37F85DE01F}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "UUIDv7.Benchmarks", "UUIDv7.Benchmarks\UUIDv7.Benchmarks.fsproj", "{1202DB42-43FA-4BD2-B8BB-FC96FF9FCDBC}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Config", "Config", "{C77E7FD0-E977-4FD6-8C28-6DBF9BFF70BF}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+		.gitignore = .gitignore
+		LICENSE = LICENSE
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -24,5 +33,9 @@ Global
 		{3671DE56-B48B-414B-8B86-9B37F85DE01F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{3671DE56-B48B-414B-8B86-9B37F85DE01F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{3671DE56-B48B-414B-8B86-9B37F85DE01F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1202DB42-43FA-4BD2-B8BB-FC96FF9FCDBC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1202DB42-43FA-4BD2-B8BB-FC96FF9FCDBC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1202DB42-43FA-4BD2-B8BB-FC96FF9FCDBC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1202DB42-43FA-4BD2-B8BB-FC96FF9FCDBC}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

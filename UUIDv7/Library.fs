@@ -45,17 +45,21 @@ module internal HexConverter =
         loopLow 16 low
 
     let formatGuid uppercase high low =
-        let hexChars =
-            if uppercase then
-                hexCharsUpper
-            else
-                hexCharsLower
+        lock guidBuilder (fun () ->
+            let hexChars =
+                if uppercase then
+                    hexCharsUpper
+                else
+                    hexCharsLower
 
-        guidBuilder.Clear() |> ignore
-        formatGuidB hexChars high low guidBuilder
-        guidBuilder.ToString()
+            guidBuilder.Clear() |> ignore
+            formatGuidB hexChars high low guidBuilder
+            guidBuilder.ToString())
+
+open System.Runtime.InteropServices
 
 [<Struct>]
+[<StructLayout(LayoutKind.Sequential)>]
 type UUIDv7(high: uint64, low: uint64) =
     member _.High = high
     member _.Low = low
@@ -64,8 +68,7 @@ type UUIDv7(high: uint64, low: uint64) =
 
     member _.Variant = low >>> 62
 
-    member _.ToUnixTimeSeconds() =
-        DateTimeOffset.FromUnixTimeSeconds(int64 (high >>> 28))
+    member _.ToUnixTimeSeconds() = int64 (high >>> 28)
 
     member _.FullTimestamp =
         let low12 = (high &&& 0xFFFUL)
@@ -79,7 +82,7 @@ type UUIDv7(high: uint64, low: uint64) =
 
     override _.ToString() = HexConverter.formatGuid false high low
 
-module private UUIDv7Helpers =
+module internal UUIDv7Helpers =
 
     // Figure 4: UUIDv7 Field and Bit Layout - Encoding Example (Microsecond Precision)
     //  0                   1                   2                   3
@@ -118,19 +121,20 @@ module private UUIDv7Helpers =
         let gate = obj ()
 
         let mutable lastTs = 0UL
-        let rand = Array.zeroCreate<byte> (8 * 256)
+        let rand = Array.zeroCreate<uint64> 256
         let mutable randI = 0uy
 
         let fromSeq seqId =
-            let span = Span(rand)
-
             if randI = 0uy then
-                rng.GetNonZeroBytes(span)
+                rng.GetBytes(MemoryMarshal.AsBytes(Span(rand)))
 
-            let x =
-                (seqId <<< 48)
-                ||| ((BitConverter.ToUInt64(span.Slice((int randI) <<< 3, 8)))
-                     &&& RandMask)
+            let mutable randBits = rand.[int randI] &&& RandMask
+
+            while randBits = 0UL do
+                randI <- randI + 1uy
+                randBits <- rand.[int randI] &&& RandMask
+
+            let x = (seqId <<< 48) ||| randBits
 
             randI <- randI + 1uy
             x
@@ -139,35 +143,23 @@ module private UUIDv7Helpers =
 
         member _.TryNext(timeStamp) =
             lock gate (fun () ->
-                if timeStamp <> lastTs then
+                if timeStamp = lastTs then
+                    match i with
+                    | SeqMax -> ValueNone
+                    | x ->
+                        let x1 = x + 1UL
+                        i <- x1
+                        ValueSome(fromSeq x1)
+                elif timeStamp > lastTs then
                     lastTs <- timeStamp
                     i <- SeqInit
                     ValueSome(fromSeq SeqInit)
                 else
-                    match i with
-                    | SeqMax -> ValueNone
-                    | x ->
-                        i <- i + 1UL
-                        ValueSome(fromSeq x)
+                    ValueNone
 
             )
 
-    type private HighBits() =
-        let mutable unixTime = 0UL
-        let mutable msTicks = 0L
-
-        let updateTime () =
-            let now = DateTimeOffset.UtcNow
-            unixTime <- uint64 (now.ToUnixTimeSeconds()) <<< 28
-
-            msTicks <-
-                TimeSpan
-                    .FromMilliseconds(
-                        float now.Millisecond
-                    )
-                    .Ticks
-
-        do updateTime ()
+    type HighBits() =
 
         let usFreq =
             match Stopwatch.Frequency / 1_000_000L with
@@ -177,28 +169,61 @@ module private UUIDv7Helpers =
                         "Stopwatch.Frequency < 1_000_000L. High resolution timer is required."
                     )
                 )
-            | usFreq -> usFreq // highestSetBit (uint64 usFreq)
+            | usFreq -> usFreq
 
         let stopwatch = Stopwatch.StartNew()
+        let mutable unixTime = 0UL
+        let mutable usTime = 0UL
+
+        let rec updateTime () =
+            let now = DateTimeOffset.UtcNow
+            stopwatch.Restart()
+            let oldUnixTime = unixTime
+            unixTime <- uint64 (now.ToUnixTimeSeconds()) <<< 28
+
+            if oldUnixTime = unixTime then
+                let oldUsNow = usTime
+                usTime <- (uint64 now.Millisecond) * 1000UL
+
+                if oldUsNow >= usTime then
+                    // Ensure that time is monotonically increasing
+                    // Millisecond roundoff detected
+                    updateTime ()
+            else
+                usTime <- (uint64 now.Millisecond) * 1000UL
+
+        do updateTime ()
+
+        let rec getMicroseconds looping =
+            let ticks = stopwatch.ElapsedTicks
+
+            if looping || ticks > 500_000L then
+                let oldUnixTime = unixTime
+                let uSecs = usTime + (uint64 (ticks / usFreq))
+                updateTime ()
+                let ticks2 = stopwatch.ElapsedTicks
+                let uSecs2 = usTime + (uint64 (ticks2 / usFreq))
+
+                if oldUnixTime = unixTime && uSecs2 < uSecs then
+                    // Ensure that time is monotonically increasing
+                    // Tick drift detected.
+                    getMicroseconds true
+                else
+                    uSecs2
+            else
+                usTime + (uint64 (ticks / usFreq))
 
         member _.Next() =
-            let uSecs = uint64 ((msTicks + stopwatch.ElapsedTicks) / usFreq)
+            lock stopwatch (fun () ->
+                let uSecs = getMicroseconds false
 
-            let uSecs =
-                if uSecs > 10_000_000UL then
-                    lock stopwatch (fun () ->
-                        // Correct for tick drift
-                        updateTime ()
+                let bottom12 = uSecs &&& TSBottomMask
+                let ts = (uSecs <<< 4) + unixTime
+                let top48 = ts &&& TSTopMask
+                top48 ||| UuidVer ||| bottom12
 
-                        stopwatch.Restart()
-                        uint64 ((msTicks + stopwatch.ElapsedTicks) / usFreq))
-                else
-                    uSecs
+            )
 
-            let bottom12 = uSecs &&& TSBottomMask
-            let ts = (uSecs <<< 4) + unixTime
-            let top48 = ts &&& TSTopMask
-            top48 ||| UuidVer ||| bottom12
 
     let mutable private timestamp = Unchecked.defaultof<_>
     let mutable private clock = Unchecked.defaultof<_>
@@ -214,5 +239,19 @@ module private UUIDv7Helpers =
         | ValueSome low -> UUIDv7(high, low)
         | ValueNone -> nextUuid ()
 
+    let toGuid (x: UUIDv7) =
+        // UUIDv7 and Guid have different byte order
+        let span = NativePtr.stackallocSpan<uint64> 2
+        span[0] <- x.Low
+        span[1] <- x.High
+        let span = MemoryMarshal.AsBytes(span)
+        span.Reverse()
+        span.Slice(0, 4).Reverse()
+        span.Slice(4, 2).Reverse()
+        span.Slice(6, 2).Reverse()
+        Guid(span)
+
 type UUIDv7 with
     static member New() = UUIDv7Helpers.nextUuid ()
+
+    member this.ToGuid() = UUIDv7Helpers.toGuid this
